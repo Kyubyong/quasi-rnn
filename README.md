@@ -1,4 +1,4 @@
-# A TensorFlow Implementation of Character Level Neural Machine Translation Using Quasi-RNNs
+# A TensorFlow Implementation of Character Level Neural Machine Translation Using the Quasi-RNN
 
 In [Bradbury et al., 2016](https://arxiv.org/abs/1611.01576) (hereafter, the Paper), the authors introduce a new neural network model which they call the Quasi-RNN. Basically, it tries to benefit from both CNNs and RNNs by combining them. The authors conducted three experiments to evaluate the performance of the Q-RNN. Character level machine translation is one of them. After the Paper was published, some enthusiasts tried to reproduce the experiments as the authors didn't disclose their source codes. Now I'm happy to be one of them. To my best knowledge, this is the first TensorFlow implementation of character level machine translation based on the Paper.
 
