@@ -4222,4 +4222,4 @@
 - expected: This is a sun placed with the origin, because Japan lies to the east of China.
 - got: And this is the sun with the Erican because Japanese and East is on China.
 
-Bleu Score = 45.9151352081
+Bleu Score = 11.352537946103348

@@ -25,7 +25,7 @@ def eval():
         X, Sources, Targets = load_test_data()
         char2idx, idx2char = load_vocab()
         
-        with codecs.open("results__.txt", "w", "utf-8") as fout:
+        with codecs.open("results.txt", "w", "utf-8") as fout:
             list_of_refs, hypotheses = [], []
             for i in range(len(X) // Hp.bs):
                 # Get mini-batches
@@ -52,8 +52,11 @@ def eval():
                     fout.flush()
                     
                     # For bleu score
-                    list_of_refs.append([target])
-                    hypotheses.append(got)
+                    ref = target.split()
+                    hypothesis = got.split()
+                    if len(ref) > 2:
+                        list_of_refs.append([ref])
+                        hypotheses.append(hypothesis)
             
             # Get bleu score
             score = corpus_bleu(list_of_refs, hypotheses)
