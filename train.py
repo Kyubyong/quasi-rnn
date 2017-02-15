@@ -63,7 +63,7 @@ def sg_quasi_conv1d(tensor, opt):
     O *= M # broadcasting
     
     # Concat
-    ZFO = tf.concat(0, [Z, F, O])
+    ZFO = tf.concat(axis=0, values=[Z, F, O])
     
     return ZFO # (16*3, 150, 320)
 
@@ -74,9 +74,9 @@ tf.sg_inject_func(sg_quasi_conv1d)
 def sg_quasi_rnn(tensor, opt):
     # Split
     if opt.att:
-        H, Z, F, O = tf.split(0, 4, tensor) # (16, 150, 320) for all
+        H, Z, F, O = tf.split(axis=0, num_or_size_splits=4, value=tensor) # (16, 150, 320) for all
     else:
-        Z, F, O = tf.split(0, 3, tensor) # (16, 150, 320) for all
+        Z, F, O = tf.split(axis=0, num_or_size_splits=3, value=tensor) # (16, 150, 320) for all
     
     # step func
     def step(z, f, o, c):
@@ -109,13 +109,13 @@ def sg_quasi_rnn(tensor, opt):
         hs.append(h.sg_expand_dims(dim=1))
     
     # Concat to return    
-    H = tf.concat(1, hs) # (16, 150, 320)
+    H = tf.concat(axis=1, values=hs) # (16, 150, 320)
     if opt.is_enc:
         H_z = tf.tile((h.sg_dense(act="linear").sg_expand_dims(dim=1)), [1, timesteps, 1])
         H_f = tf.tile((h.sg_dense(act="linear").sg_expand_dims(dim=1)), [1, timesteps, 1])
         H_o = tf.tile((h.sg_dense(act="linear").sg_expand_dims(dim=1)), [1, timesteps, 1])
         
-        concatenated = tf.concat(0, [H, H_z, H_f, H_o]) # (16*4, 150, 320)
+        concatenated = tf.concat(axis=0, values=[H, H_z, H_f, H_o]) # (16*4, 150, 320)
         return concatenated
     else:
         return H # (16, 150, 320)
@@ -128,7 +128,7 @@ class Graph(object):
         # Inputs and Labels
         if mode == "train":
             self.x, self.y, self.num_batch = get_batch_data() # (16, 150) int32, (16, 150) int32, int
-            self.y_src = tf.concat(1, [tf.zeros((Hp.bs, 1), tf.int32), self.y[:, :-1]]) # (16, 150) int32
+            self.y_src = tf.concat(axis=1, values=[tf.zeros((Hp.bs, 1), tf.int32), self.y[:, :-1]]) # (16, 150) int32
         else: # inference
             self.x = tf.placeholder(tf.int32, shape=(Hp.bs, Hp.maxlen))
             self.y_src = tf.placeholder(tf.int32, shape=(Hp.bs, Hp.maxlen))
