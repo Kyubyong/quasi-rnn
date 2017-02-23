@@ -63,7 +63,7 @@ def sg_quasi_conv1d(tensor, opt):
     O *= M # broadcasting
     
     # Concat
-    ZFO = tf.concat(axis=0, values=[Z, F, O])
+    ZFO = tf.concat([Z, F, O], 0)
     
     return ZFO # (16*3, 150, 320)
 
@@ -74,9 +74,9 @@ tf.sg_inject_func(sg_quasi_conv1d)
 def sg_quasi_rnn(tensor, opt):
     # Split
     if opt.att:
-        H, Z, F, O = tf.split(axis=0, num_or_size_splits=4, value=tensor) # (16, 150, 320) for all
+        H, Z, F, O = tf.split(tensor, 4, axis=0) # (16, 150, 320) for all
     else:
-        Z, F, O = tf.split(axis=0, num_or_size_splits=3, value=tensor) # (16, 150, 320) for all
+        Z, F, O = tf.split(tensor, 3, axis=0) # (16, 150, 320) for all
     
     # step func
     def step(z, f, o, c):
@@ -87,7 +87,7 @@ def sg_quasi_rnn(tensor, opt):
         
         if opt.att: # attention
             a = tf.nn.softmax(tf.einsum("ijk,ik->ij", H, c)) # alpha. (16, 150) 
-            k = (a.sg_expand_dims() * H).sg_sum(dims=1) # attentional sum. (16, 150) 
+            k = (a.sg_expand_dims() * H).sg_sum(axis=1) # attentional sum. (16, 150) 
             h = o * (k.sg_dense(act="linear") + c.sg_dense(act="linear"))
         else:
             h = o * c
@@ -106,16 +106,16 @@ def sg_quasi_rnn(tensor, opt):
         h, c = step(z, f, o, c) # (16, 320), (16, 320)
         
         # save result
-        hs.append(h.sg_expand_dims(dim=1))
+        hs.append(h.sg_expand_dims(axis=1))
     
     # Concat to return    
-    H = tf.concat(axis=1, values=hs) # (16, 150, 320)
+    H = tf.concat(hs, 1) # (16, 150, 320)
     if opt.is_enc:
-        H_z = tf.tile((h.sg_dense(act="linear").sg_expand_dims(dim=1)), [1, timesteps, 1])
-        H_f = tf.tile((h.sg_dense(act="linear").sg_expand_dims(dim=1)), [1, timesteps, 1])
-        H_o = tf.tile((h.sg_dense(act="linear").sg_expand_dims(dim=1)), [1, timesteps, 1])
+        H_z = tf.tile((h.sg_dense(act="linear").sg_expand_dims(axis=1)), [1, timesteps, 1])
+        H_f = tf.tile((h.sg_dense(act="linear").sg_expand_dims(axis=1)), [1, timesteps, 1])
+        H_o = tf.tile((h.sg_dense(act="linear").sg_expand_dims(axis=1)), [1, timesteps, 1])
         
-        concatenated = tf.concat(axis=0, values=[H, H_z, H_f, H_o]) # (16*4, 150, 320)
+        concatenated = tf.concat([H, H_z, H_f, H_o], 0) # (16*4, 150, 320)
         return concatenated
     else:
         return H # (16, 150, 320)
@@ -128,7 +128,7 @@ class Graph(object):
         # Inputs and Labels
         if mode == "train":
             self.x, self.y, self.num_batch = get_batch_data() # (16, 150) int32, (16, 150) int32, int
-            self.y_src = tf.concat(axis=1, values=[tf.zeros((Hp.bs, 1), tf.int32), self.y[:, :-1]]) # (16, 150) int32
+            self.y_src = tf.concat([tf.zeros((Hp.bs, 1), tf.int32), self.y[:, :-1]], 1) # (16, 150) int32
         else: # inference
             self.x = tf.placeholder(tf.int32, shape=(Hp.bs, Hp.maxlen))
             self.y_src = tf.placeholder(tf.int32, shape=(Hp.bs, Hp.maxlen))
@@ -161,22 +161,22 @@ class Graph(object):
         self.H_zfo4 = self.pool[Hp.bs:] # (16*3, 150, 320) for decoding
 
         # Decoding
-        self.dec = self.Y.sg_concat(target=self.H_zfo1, dim=0)
+        self.dec = self.Y.sg_concat(target=self.H_zfo1, axis=0)
                      
         self.d_conv = self.dec.sg_quasi_conv1d(is_enc=False, size=2)
         self.d_pool = self.d_conv.sg_quasi_rnn(is_enc=False, att=False) # (16*4, 150, 320)
         
-        self.d_conv = (self.d_pool.sg_concat(target=self.H_zfo2, dim=0)
+        self.d_conv = (self.d_pool.sg_concat(target=self.H_zfo2, axis=0)
                                   .sg_quasi_conv1d(is_enc=False, size=2))
         self.d_pool = self.d_conv.sg_quasi_rnn(is_enc=False, att=False) # (16*4, 150, 320)
         
-        self.d_conv = (self.d_pool.sg_concat(target=self.H_zfo3, dim=0)
+        self.d_conv = (self.d_pool.sg_concat(target=self.H_zfo3, axis=0)
                                   .sg_quasi_conv1d(is_enc=False, size=2))
         self.d_pool = self.d_conv.sg_quasi_rnn(is_enc=False, att=False) # (16*4, 150, 320)
         
-        self.d_conv = (self.d_pool.sg_concat(target=self.H_zfo4, dim=0)
+        self.d_conv = (self.d_pool.sg_concat(target=self.H_zfo4, axis=0)
                                   .sg_quasi_conv1d(is_enc=False, size=2))
-        self.concat = self.H4.sg_concat(target=self.d_conv, dim=0)
+        self.concat = self.H4.sg_concat(target=self.d_conv, axis=0)
         self.d_pool = self.concat.sg_quasi_rnn(is_enc=False, att=True) # (16*4, 150, 320)
         
         self.logits = self.d_pool.sg_conv1d(size=1, dim=len(self.char2idx), act="linear") # (16, 150, 179)
@@ -190,8 +190,8 @@ class Graph(object):
 
 def main():
     g = Graph(); print("Graph Loaded")
-    tf.sg_train(optim="Adam", lr=0.0001, lr_reset=True, loss=g.reduced_loss, ep_size=g.num_batch,
-                save_dir='asset/train', max_ep=10, early_stop=False)
+    tf.sg_train(optim="Adam", lr=0.000001, lr_reset=True, loss=g.reduced_loss, ep_size=g.num_batch,
+                save_dir='asset/train', max_ep=30, early_stop=False)
     
 if __name__ == "__main__":
     main(); print("Done")
