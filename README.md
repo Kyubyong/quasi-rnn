@@ -31,7 +31,7 @@ Or if you'd like to use the pretrained model,
 
 ## Evaluation & Results
 
-As shown in the Paper, we trained for 10 epochs with `train.tags.de-en` files and evaluated with `TED.tst2014.de-en` files. We obtained the Bleu Score of 11.352537946103348. The details are available in `results.txt`.
+As shown in the Paper, we trained for 10 epochs with `train.tags.de-en` files and evaluated with `TED.tst2014.de-en` files. We obtained the Bleu Score of 10.1254874522. The details are available in `results.txt`.
 
 
 	
