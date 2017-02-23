@@ -4,7 +4,7 @@ In [Bradbury et al., 2016](https://arxiv.org/abs/1611.01576) (hereafter, the Pap
 
 ## Requirements
   * numpy >= 1.11.1
-  * sugartensor >= 0.0.2.4
+  * sugartensor >= 1.0.0.0
   * nltk >= 3.2.2 (only for calculating the bleu score)
 
 ## Some notes on implementation
