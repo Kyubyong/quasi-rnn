@@ -4,7 +4,8 @@ In [Bradbury et al., 2016](https://arxiv.org/abs/1611.01576) (hereafter, the Pap
 
 ## Requirements
   * numpy >= 1.11.1
-  * sugartensor >= 1.0.0.0
+  * TensorFlow == 1.0
+  * sugartensor >= 1.0.0.2
   * nltk >= 3.2.2 (only for calculating the bleu score)
 
 ## Some notes on implementation
@@ -12,26 +13,23 @@ In [Bradbury et al., 2016](https://arxiv.org/abs/1611.01576) (hereafter, the Pap
 Overall, we tried to follow the instructions in the Paper. Some major differences are as follows.
 
 * The Paper set the maximum sequence length to 300 characters, but we changed it to 150 due to the limitation of our single gpu (GTX 1080 8GB).
-* We applied a greedy decoder at the inference phase, not the beam search.
-* We didn't reverse source sentences because simply we didn't like the idea :) (We know in some papers it worked well, though.)
-
+* We applied a greedy decoder at the inference phase, not the beam search decoder.
+* We didn't reverse source sentences. But you can set the 'reverse_inputs` in `hyperparams.py` True to do it yourself.
 
 ## Work Flow
 
 * STEP 1. Download [IWSLT 2016 German–English parallel corpus](https://wit3.fbk.eu/download.php?release=2016-01&type=texts&slang=de&tlang=en) and extract it to `corpora/` folder.
-* STEP 2. Run `prepro.py` to make training / test data.
-* STEP 3. Run `train.py`.
-* STEP 4. Run `eval.py` to get the results for the test sentences.
+* STEP 2. Run `train.py`.
+* STEP 3. Run `eval.py` to get the results for the test sentences.
 
 Or if you'd like to use the pretrained model,
 
-* Download the [output files](https://drive.google.com/open?id=0B0ZXk88koS2KcU5vTjlhcFpwQUk) of STEP 3, then place them to `data/` folder.
-* Download the [pre-trained model files](https://drive.google.com/open?id=0B0ZXk88koS2KcUtFblFiai1BM0k), then place them to `asset/train/` folder.
+* Download the [pre-trained model files](https://dl.dropboxusercontent.com/u/42868014/qrnn/qrnn.tar.gz), then extract them to `asset/train/` folder.
 * Run eval.py.
 
 ## Evaluation & Results
 
-As shown in the Paper, we trained for 10 epochs with `train.tags.de-en` files and evaluated with `TED.tst2014.de-en` files. We obtained the Bleu Score of 10.1254874522. The details are available in `results.txt`.
+Unfortunately, we failed to reproduce the results of the Paper. (Please help!) Our best model obtained Bleu Score of 10.8. The details are available in `results.txt`. 
 
 
 	

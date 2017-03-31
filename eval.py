@@ -1,5 +1,6 @@
 #-*- coding: utf-8-*-
 from __future__ import print_function
+from hyperparams import Hp
 import codecs
 import sugartensor as tf
 import numpy as np
@@ -9,7 +10,7 @@ from nltk.translate.bleu_score import corpus_bleu
 
 def eval(): 
     # Load graph
-    g = Graph(mode="test")
+    g = Graph(mode="inference"); print("Graph Loaded")
         
     with tf.Session() as sess:
         # Initialize variables
@@ -22,19 +23,19 @@ def eval():
         mname = open('asset/train/checkpoint', 'r').read().split('"')[1] # model name
         
         # Load data
-        X, Sources, Targets = load_test_data()
+        X, Sources, Targets = load_test_data(input_reverse=Hp.reverse_inputs)
         char2idx, idx2char = load_vocab()
         
-        with codecs.open("results.txt", "w", "utf-8") as fout:
+        with codecs.open(mname, "w", "utf-8") as fout:
             list_of_refs, hypotheses = [], []
-            for i in range(len(X) // Hp.bs):
+            for i in range(len(X) // Hp.batch_size):
                 # Get mini-batches
-                x = X[i*Hp.bs: (i+1)*Hp.bs] # mini-batch
-                sources = Sources[i*Hp.bs: (i+1)*Hp.bs]
-                targets = Targets[i*Hp.bs: (i+1)*Hp.bs]
+                x = X[i*Hp.batch_size: (i+1)*Hp.batch_size] # mini-batch
+                sources = Sources[i*Hp.batch_size: (i+1)*Hp.batch_size]
+                targets = Targets[i*Hp.batch_size: (i+1)*Hp.batch_size]
                 
-                preds_prev = np.zeros((Hp.bs, Hp.maxlen), np.int32)
-                preds = np.zeros((Hp.bs, Hp.maxlen), np.int32)        
+                preds_prev = np.zeros((Hp.batch_size, Hp.maxlen), np.int32)
+                preds = np.zeros((Hp.batch_size, Hp.maxlen), np.int32)        
                 for j in range(Hp.maxlen):
                     # predict next character
                     outs = sess.run(g.preds, {g.x: x, g.y_src: preds_prev})
