@@ -6,20 +6,22 @@ import re
 import numpy as np
 
 def load_vocab():
-    # Note that ␀, ␂, ␃, and ⁇  mean padding, BOS, EOS, and OOV respectively.
+    # Note that ␀, ␂, ␃, and ⁇  mean padding, EOS, and OOV respectively.
     vocab = u'''␀␃⁇ ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÄÅÇÉÖ×ÜßàáâãäçèéêëíïñóôöøúüýāćČēīœšūβкӒ0123456789!"#$%&''()*+,-./:;=?@[\]^_` ¡£¥©«­®°²³´»¼½¾ยรอ่‒–—‘’‚“”„‟‹›€™♪♫你葱送﻿，'''
     char2idx = {char: idx for idx, char in enumerate(vocab)}
     idx2char = {idx: char for idx, char in enumerate(vocab)}
     return char2idx, idx2char
 
-def create_data(source_sents, target_sents, input_reverse=False): 
+def create_data(source_sents, target_sents): 
     char2idx, idx2char = load_vocab()
     
     X, Y, Sources, Targets = [], [], [], []
     for source_sent, target_sent in zip(source_sents, target_sents):
+        # tokenize naively
+        source_sent = re.sub(r"([,.!?])", r" \1", source_sent)
+        target_sent = re.sub(r"([,.!?])", r" \1", target_sent)
+        
         x = [char2idx.get(char, 2) for char in source_sent + u"␃"] # 2: OOV, ␃: End of text
-        if input_reverse:
-            x = x[::-1][1:] + x[-1:]
         y = [char2idx.get(char, 2) for char in target_sent + u"␃"] 
         if max(len(x), len(y)) <= Hp.maxlen:
             x += [0] * (Hp.maxlen - len(x)) # zero postpadding
@@ -36,13 +38,13 @@ def create_data(source_sents, target_sents, input_reverse=False):
     
     return X, Y, Sources, Targets
        
-def load_train_data(input_reverse=False):
+def load_train_data():
     de_sents = [line for line in codecs.open(Hp.de_train, 'r', 'utf-8').read().split("\n") if line and line[0] != "<"]
     en_sents = [line for line in codecs.open(Hp.en_train, 'r', 'utf-8').read().split("\n") if line and line[0] != "<"]
-    X, Y, _, _ = create_data(de_sents, en_sents, input_reverse=input_reverse)
+    X, Y, _, _ = create_data(de_sents, en_sents)
     return X, Y
     
-def load_test_data(input_reverse=False):
+def load_test_data():
     def remove_tags(line):
         line = re.sub("<[^>]+>", "", line) 
         return line.strip()
@@ -50,7 +52,7 @@ def load_test_data(input_reverse=False):
     de_sents = [remove_tags(line) for line in codecs.open(Hp.de_test, 'r', 'utf-8').read().split("\n") if line and line[:4] == "<seg"]
     en_sents = [remove_tags(line) for line in codecs.open(Hp.en_test, 'r', 'utf-8').read().split("\n") if line and line[:4] == "<seg"]
 
-    X, _, Sources, Targets = create_data(de_sents, en_sents, input_reverse=input_reverse)
+    X, _, Sources, Targets = create_data(de_sents, en_sents)
     return X, Sources, Targets # (1064, 150)
      
 

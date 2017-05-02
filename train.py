@@ -15,7 +15,7 @@ def get_batch_data():
       and number of batches (int) 
     '''
     # Load data
-    X, Y = load_train_data(input_reverse=Hp.reverse_inputs)
+    X, Y = load_train_data()
     char2idx, idx2char = load_vocab()
     
     # Get number of mini-batches
@@ -62,16 +62,15 @@ def sg_quasi_conv1d(tensor, opt):
         O = H.sg_aconv1d() + H_o # (16, 150, 320)
 
     # Activation
-    with tf.sg_context(ln=True):
-        Z = Z.sg_bypass(act="tanh") # (16, 150, 320)
-        F = F.sg_bypass(act="sigmoid") # (16, 150, 320)
-        O = O.sg_bypass(act="sigmoid") # (16, 150, 320)
+    Z = Z.sg_bypass(act="tanh") # (16, 150, 320)
+    F = F.sg_bypass(act="sigmoid") # (16, 150, 320)
+    O = O.sg_bypass(act="sigmoid") # (16, 150, 320)
     
     # Masking
-    M = tf.sign(tf.abs(tf.reduce_sum(H, axis=-1, keep_dims=True))) # (16, 150, 1) float32. 0 or 1
-    Z *= M # broadcasting
-    F *= M # broadcasting
-    O *= M # broadcasting
+    #M = tf.sign(tf.abs(tf.reduce_sum(H, axis=-1, keep_dims=True))) # (16, 150, 1) float32. 0 or 1
+    #Z *= M # broadcasting
+    #F *= M # broadcasting
+    #O *= M # broadcasting
     
     # Concat
     ZFO = tf.concat([Z, F, O], 0)
@@ -89,6 +88,7 @@ def sg_quasi_rnn(tensor, opt):
     else:
         Z, F, O = tf.split(tensor, 3, axis=0) # (16, 150, 320) for all
     
+#     M = tf.sign(tf.abs(tf.reduce_sum(Z, axis=-1, keep_dims=True))) 
     # step func
     def step(z, f, o, c):
         '''
@@ -122,8 +122,8 @@ def sg_quasi_rnn(tensor, opt):
     
     # Concat to return    
     H = tf.concat(hs, 1) # (16, 150, 320)
-    seqlen = tf.to_int32(tf.reduce_sum(tf.sign(tf.abs(tf.reduce_sum(H, axis=-1))), 1)) # (16,) float32
-    h = tf.reverse_sequence(input=H, seq_lengths=seqlen, seq_dim=1)[:, 0, :] # last hidden state vector
+    #seqlen = tf.to_int32(tf.reduce_sum(tf.sign(tf.abs(tf.reduce_sum(H, axis=-1))), 1)) # (16,) float32
+    #h = tf.reverse_sequence(input=H, seq_length=seqlen, seq_dim=1)[:, 0, :] # last hidden state vector
     
     if opt.is_enc: 
         H_z = tf.tile((h.sg_dense(act="linear").sg_expand_dims(axis=1)), [1, timesteps, 1])
@@ -151,10 +151,21 @@ class Graph(object):
         char2idx, idx2char = load_vocab()
         
         # Embedding
-        emb_x = tf.sg_emb(name='emb_x', voca_size=len(char2idx), dim=Hp.hidden_units)  # (179, 320)
-        emb_y = tf.sg_emb(name='emb_y', voca_size=len(char2idx), dim=Hp.hidden_units)  # (179, 320)
-        X = self.x.sg_lookup(emb=emb_x) # (16, 150, 320)
-        Y = self.y_src.sg_lookup(emb=emb_y) # (16, 150, 320)
+        def embed(inputs, vocab_size, embed_size, variable_scope):
+            '''
+            inputs = tf.expand_dims(tf.range(5), 0) => (1, 5)
+            _embed(inputs, 5, 10) => (1, 5, 10)
+            '''
+            with tf.variable_scope(variable_scope):
+                lookup_table = tf.get_variable('lookup_table', 
+                                               dtype=tf.float32, 
+                                               shape=[vocab_size, embed_size],
+                                               initializer=tf.truncated_normal_initializer())
+            return tf.nn.embedding_lookup(lookup_table, inputs)
+        
+        X = embed(self.x, vocab_size=len(char2idx), embed_size=Hp.hidden_units, variable_scope='X')  # (179, 320)
+        Y = embed(self.y_src, vocab_size=len(char2idx), embed_size=Hp.hidden_units, variable_scope='Y')  # (179, 320)
+#         Y = tf.concat((tf.zeros_like(Y[:, :1, :]), Y[:, :-1, :]), 1)
             
         # Encoding
         conv = X.sg_quasi_conv1d(is_enc=True, size=6) # (16*3, 150, 320)
@@ -196,9 +207,9 @@ class Graph(object):
 
         if mode=='train':
             # cross entropy loss with logits ( for training set )
-            loss = logits.sg_ce(target=self.y, mask=True)
+            self.loss = logits.sg_ce(target=self.y, mask=True)
             istarget = tf.not_equal(self.y, 0).sg_float()
-            self.reduced_loss = (loss.sg_sum()) / (istarget.sg_sum() + 0.00001)
+            self.reduced_loss = (self.loss.sg_sum()) / (istarget.sg_sum() + 1e-8)
             tf.sg_summary_loss(self.reduced_loss, "reduced_loss")
         else: # inference
             self.preds = logits.sg_argmax() 

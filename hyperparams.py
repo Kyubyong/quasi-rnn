@@ -7,4 +7,3 @@ class Hp:
     maxlen = 150 # Maximum sentence length
     batch_size = 16
     hidden_units = 320
-    reverse_inputs = False

@@ -23,7 +23,7 @@ def eval():
         mname = open('asset/train/checkpoint', 'r').read().split('"')[1] # model name
         
         # Load data
-        X, Sources, Targets = load_test_data(input_reverse=Hp.reverse_inputs)
+        X, Sources, Targets = load_test_data()
         char2idx, idx2char = load_vocab()
         
         with codecs.open(mname, "w", "utf-8") as fout:
