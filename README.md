@@ -14,7 +14,7 @@ Overall, we tried to follow the instructions in the Paper. Some major difference
 
 * The Paper set the maximum sequence length to 300 characters, but we changed it to 150 due to the limitation of our single gpu (GTX 1080 8GB).
 * We applied a greedy decoder at the inference phase, not the beam search decoder.
-* We didn't reverse source sentences. But you can set the 'reverse_inputs` in `hyperparams.py` True to do it yourself.
+* We didn't reverse source sentences.
 
 ## Work Flow
 
@@ -29,7 +29,7 @@ Or if you'd like to use the pretrained model,
 
 ## Evaluation & Results
 
-Unfortunately, we failed to reproduce the results of the Paper. (Please help!) Our best model obtained Bleu Score of 10.8. The details are available in `results.txt`. 
+Our best model obtained Bleu Score of 15.145749415. The details are available in `model.ckpt-50604`. 
 
 
 	
