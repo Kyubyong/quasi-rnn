@@ -1,248 +1,223 @@
 # -*- coding: utf-8 -*-
-'''
-This is a TensorFlow implementation of 
-Character-Level Machine Translation in the paper 
-'Neural Machine Translation in Linear Time' (version updated in 2017)
-https://arxiv.org/abs/1610.10099. 
-
-Note that I've changed a line in the file.
-`tensorflow/contrib/layers/python/layers/layer.py` for some reason.
-Check below.
-
-line 1532
-Before: mean, variance = nn.moments(inputs, axis, keep_dims=True)
-After: mean, variance = nn.moments(inputs, [-1], keep_dims=True)
-
-By kyubyong park. kbpark.linguist@gmail.com. https://www.github.com/kyubyong/bytenet
-'''
 from __future__ import print_function
-from hyperparams import Hyperparams as hp
-import tensorflow as tf
+from hyperparams import Hp
+import sugartensor as tf
 import numpy as np
 from prepro import *
-import os
-from tqdm import tqdm
+
+# set log level to debug
+tf.sg_verbosity(10)
 
 def get_batch_data():
+    '''
+    Returns:
+      A Tuple of X batch queues (Tensor), Y batch queues (Tensor), 
+      and number of batches (int) 
+    '''
     # Load data
     X, Y = load_train_data()
+    char2idx, idx2char = load_vocab()
     
-    # calc total batch count
-    num_batch = len(X) // hp.batch_size
+    # Get number of mini-batches
+    num_batch = len(X) // Hp.batch_size
     
     # Convert to tensor
     X = tf.convert_to_tensor(X, tf.int32)
     Y = tf.convert_to_tensor(Y, tf.int32)
     
-    # Create Queues
-    input_queues = tf.train.slice_input_producer([X, Y])
-            
-    # create batch queues
-    x, y = tf.train.shuffle_batch(input_queues,
+    # Make slice 
+    x, y = tf.train.slice_input_producer([X, Y])
+
+    # Create batch queues
+    x, y = tf.train.shuffle_batch([x, y],
                                 num_threads=8,
-                                batch_size=hp.batch_size, 
-                                capacity=hp.batch_size*64,   
-                                min_after_dequeue=hp.batch_size*32, 
+                                batch_size=Hp.batch_size, 
+                                capacity=Hp.batch_size*64,
+                                min_after_dequeue=Hp.batch_size*32, 
                                 allow_smaller_final_batch=False)
-    
-    return x, y, num_batch # (64, 100), (64, 100), ()
+    return x, y, num_batch
 
-def embed(inputs, vocab_size, embed_size, scope="embed"):
+@tf.sg_layer_func
+def sg_quasi_conv1d(tensor, opt):
     '''
     Args:
-      tensor: A 2-D tensor of [batch, time].
-      vocab_size: An int. The number of vocabulary.
-      num_units: An int. The number of embedding units.
- 
-    Returns:
-      An embedded tensor whose index zero is associated with constant 0. 
+      tensor: A 3-D tensor of either [batch size, time steps, embedding size] for original
+          X or [batch size * 4, time steps, embedding size] for the others.
+           
     '''
-    with tf.variable_scope(scope):
-        lookup_table_for_zero = tf.zeros(shape=[1, embed_size], dtype=tf.float32)
-        lookup_table_for_others = tf.get_variable('lookup_table', 
-                                            dtype=tf.float32, 
-                                            shape=[vocab_size-1, embed_size],
-                                            initializer=tf.contrib.layers.xavier_initializer())
-        lookup_table = tf.concat((lookup_table_for_zero, lookup_table_for_others), 0)
-    return tf.nn.embedding_lookup(lookup_table, inputs)
+    opt += tf.sg_opt(is_enc=False)
     
-def normalize_activate(inputs, scope="norm1"):
-    '''
-    Args:
-      tensor: A 3-D or 4-D tensor.
+    # Split into H and H_zfo
+    H = tensor[:Hp.batch_size]
+    H_z = tensor[Hp.batch_size:2*Hp.batch_size]
+    H_f = tensor[2*Hp.batch_size:3*Hp.batch_size]
+    H_o = tensor[3*Hp.batch_size:]
+    if opt.is_enc:
+        H_z, H_f, H_o = 0, 0, 0
     
-    Returns:
-      A tensor of the same shape as `tensor`, which has been 
-      layer normalized and subsequently activated by Relu.
-    '''
-    return tf.contrib.layers.layer_norm(inputs=inputs, center=True, scale=True, 
-                                        activation_fn=tf.nn.relu, scope=scope)
+    # Convolution and merging
+    with tf.sg_context(size=opt.size, act="linear", causal=(not opt.is_enc)):
+        Z = H.sg_aconv1d() + H_z # (16, 150, 320)
+        F = H.sg_aconv1d() + H_f # (16, 150, 320)
+        O = H.sg_aconv1d() + H_o # (16, 150, 320)
 
-def conv1d(inputs, 
-           filters, 
-           size=1, 
-           rate=1, 
-           padding="SAME", 
-           causal=False,
-           use_bias=False,
-           scope="conv1d"):
-    '''
-    Args:
-      inputs: A 3-D tensor of [batch, time, depth].
-      filters: An int. Number of outputs (=activation maps)
-      size: An int. Filter size.
-      rate: An int. Dilation rate.
-      padding: Either `SAME` or `VALID`.
-      causal: A boolean. If True, zeros of (kernel size - 1) * rate are padded on the left
-        for causality.
-      use_bias: A boolean.
+    # Activation
+    Z = Z.sg_bypass(act="tanh") # (16, 150, 320)
+    F = F.sg_bypass(act="sigmoid") # (16, 150, 320)
+    O = O.sg_bypass(act="sigmoid") # (16, 150, 320)
     
-    Returns:
-      A masked tensor of the sampe shape as `tensor`.
-    '''
+    # Masking
+    #M = tf.sign(tf.abs(tf.reduce_sum(H, axis=-1, keep_dims=True))) # (16, 150, 1) float32. 0 or 1
+    #Z *= M # broadcasting
+    #F *= M # broadcasting
+    #O *= M # broadcasting
     
-    with tf.variable_scope(scope):
-        if causal:
-            # pre-padding for causality
-            pad_len = (size - 1) * rate  # padding size
-            inputs = tf.pad(inputs, [[0, 0], [pad_len, 0], [0, 0]])
-            padding = "VALID"
+    # Concat
+    ZFO = tf.concat([Z, F, O], 0)
+    
+    return ZFO # (16*3, 150, 320)
+
+# injection
+tf.sg_inject_func(sg_quasi_conv1d)
+    
+@tf.sg_rnn_layer_func
+def sg_quasi_rnn(tensor, opt):
+    # Split
+    if opt.att:
+        H, Z, F, O = tf.split(tensor, 4, axis=0) # (16, 150, 320) for all
+    else:
+        Z, F, O = tf.split(tensor, 3, axis=0) # (16, 150, 320) for all
+    
+#     M = tf.sign(tf.abs(tf.reduce_sum(Z, axis=-1, keep_dims=True))) 
+    # step func
+    def step(z, f, o, c):
+        '''
+        Runs fo-pooling at each time step
+        '''
+        c = f * c + (1 - f) * z
+        
+        if opt.att: # attention
+            a = tf.nn.softmax(tf.einsum("ijk,ik->ij", H, c)) # alpha. (16, 150) 
+            k = (a.sg_expand_dims() * H).sg_sum(axis=1) # attentional sum. (16, 320) 
+            h = o * (k.sg_dense(act="linear") + \
+                     c.sg_dense(act="linear"))
+        else:
+            h = o * c
+        
+        return h, c # hidden states, (new) cell memories
+    
+    # Do rnn loop
+    c, hs = 0, []
+    timesteps = tensor.get_shape().as_list()[1]
+    for t in range(timesteps):
+        z = Z[:, t, :] # (16, 320)
+        f = F[:, t, :] # (16, 320)
+        o = O[:, t, :] # (16, 320)
+
+        # apply step function
+        h, c = step(z, f, o, c) # (16, 320), (16, 320)
+        
+        # save result
+        hs.append(h.sg_expand_dims(axis=1))
+    
+    # Concat to return    
+    H = tf.concat(hs, 1) # (16, 150, 320)
+    #seqlen = tf.to_int32(tf.reduce_sum(tf.sign(tf.abs(tf.reduce_sum(H, axis=-1))), 1)) # (16,) float32
+    #h = tf.reverse_sequence(input=H, seq_length=seqlen, seq_dim=1)[:, 0, :] # last hidden state vector
+    
+    if opt.is_enc: 
+        H_z = tf.tile((h.sg_dense(act="linear").sg_expand_dims(axis=1)), [1, timesteps, 1])
+        H_f = tf.tile((h.sg_dense(act="linear").sg_expand_dims(axis=1)), [1, timesteps, 1])
+        H_o = tf.tile((h.sg_dense(act="linear").sg_expand_dims(axis=1)), [1, timesteps, 1])
+        concatenated = tf.concat([H, H_z, H_f, H_o], 0) # (16*4, 150, 320)
+        return concatenated
+    else:
+        return H # (16, 150, 320)
+    
+# injection
+tf.sg_inject_func(sg_quasi_rnn)
+
+class Graph(object):
+    def __init__(self, mode="train"):
+        # Inputs and Labels
+        if mode == "train":
+            self.x, self.y, self.num_batch = get_batch_data() # (16, 150) int32, (16, 150) int32, int
+            self.y_src = tf.concat([tf.zeros((Hp.batch_size, 1), tf.int32), self.y[:, :-1]], 1) # (16, 150) int32
+        else: # inference
+            self.x = tf.placeholder(tf.int32, shape=(Hp.batch_size, Hp.maxlen))
+            self.y_src = tf.placeholder(tf.int32, shape=(Hp.batch_size, Hp.maxlen))
+        
+        # Load vocabulary    
+        char2idx, idx2char = load_vocab()
+        
+        # Embedding
+        def embed(inputs, vocab_size, embed_size, variable_scope):
+            '''
+            inputs = tf.expand_dims(tf.range(5), 0) => (1, 5)
+            _embed(inputs, 5, 10) => (1, 5, 10)
+            '''
+            with tf.variable_scope(variable_scope):
+                lookup_table = tf.get_variable('lookup_table', 
+                                               dtype=tf.float32, 
+                                               shape=[vocab_size, embed_size],
+                                               initializer=tf.truncated_normal_initializer())
+            return tf.nn.embedding_lookup(lookup_table, inputs)
+        
+        X = embed(self.x, vocab_size=len(char2idx), embed_size=Hp.hidden_units, variable_scope='X')  # (179, 320)
+        Y = embed(self.y_src, vocab_size=len(char2idx), embed_size=Hp.hidden_units, variable_scope='Y')  # (179, 320)
+#         Y = tf.concat((tf.zeros_like(Y[:, :1, :]), Y[:, :-1, :]), 1)
             
-        params = {"inputs":inputs, "filters":filters, "kernel_size":size,
-                "dilation_rate":rate, "padding":padding, "activation":None, 
-                "use_bias":use_bias}
-        
-        out = tf.layers.conv1d(**params)
-    
-    return out
+        # Encoding
+        conv = X.sg_quasi_conv1d(is_enc=True, size=6) # (16*3, 150, 320)
+        pool = conv.sg_quasi_rnn(is_enc=True, att=False) # (16*4, 150, 320)
+        H_zfo1 = pool[Hp.batch_size:] # (16*3, 15, 320) for decoding
+         
+        conv = pool.sg_quasi_conv1d(is_enc=True, size=2) # (16*3, 150, 320)
+        pool = conv.sg_quasi_rnn(is_enc=True, att=False) # (16*4, 150, 320)
+        H_zfo2 = pool[Hp.batch_size:] # (16*3, 150, 320) for decoding
+         
+        conv = pool.sg_quasi_conv1d(is_enc=True, size=2) # (16*3, 150, 320)
+        pool = conv.sg_quasi_rnn(is_enc=True, att=False) # (16*4, 150, 320)
+        H_zfo3 = pool[Hp.batch_size:] # (16*3, 150, 320) for decoding
+         
+        conv = pool.sg_quasi_conv1d(is_enc=True, size=2) # (16*3, 150, 320)
+        pool = conv.sg_quasi_rnn(is_enc=True, att=False) # (16*4, 150, 320)
+        H4 = pool[:Hp.batch_size] # (16, 150, 320) for decoding
+        H_zfo4 = pool[Hp.batch_size:] # (16*3, 150, 320) for decoding
 
-def block(tensor, 
-          size=3, 
-          rate=1, 
-          initial=False, 
-          causal=False,
-          scope="block1"):
-    '''
-    Refer to Figure 3 on page 4 of the original paper.
-    Args
-      tensor: A 3-D tensor of [batch, time, depth].
-      size: An int. Filter size.
-      rate: An int. Dilation rate.
-      initial: A boolean. If True, `tensor` will not be activated at first.
-      is_training: A boolean. Phase declaration for batch normalization.
-      normalization_type: Either `ln` or `bn`.
-      causal: A boolean. If True, zeros of (kernel size - 1) * rate are prepadded
-        for causality.
-    
-    Returns
-      A tensor of the same shape as `tensor`.
-    '''
-    with tf.variable_scope(scope):
-        out = tensor
+        # Decoding
+        d_conv = (Y.sg_concat(target=H_zfo1, axis=0)
+                   .sg_quasi_conv1d(is_enc=False, size=2))
+        d_pool = d_conv.sg_quasi_rnn(is_enc=False, att=False) # (16*4, 150, 320)
         
-        # input dimension
-        in_dim = out.get_shape().as_list()[-1]
+        d_conv = (d_pool.sg_concat(target=H_zfo2, axis=0)
+                        .sg_quasi_conv1d(is_enc=False, size=2))
+        d_pool = d_conv.sg_quasi_rnn(is_enc=False, att=False) # (16*4, 150, 320)
         
-        if not initial:
-            out = normalize_activate(out, scope="norm_1")
+        d_conv = (d_pool.sg_concat(target=H_zfo3, axis=0)
+                        .sg_quasi_conv1d(is_enc=False, size=2))
+        d_pool = d_conv.sg_quasi_rnn(is_enc=False, att=False) # (16*4, 150, 320)
         
-        # 1 X 1 convolution -> Dimensionality reduction
-        out = conv1d(out, filters=in_dim/2, size=1, causal=causal, scope="conv1d_1")
+        d_conv = (d_pool.sg_concat(target=H_zfo4, axis=0)
+                        .sg_quasi_conv1d(is_enc=False, size=2))
+        concat = H4.sg_concat(target=d_conv, axis=0)
+        d_pool = concat.sg_quasi_rnn(is_enc=False, att=True) # (16, 150, 320)
         
-        # normalize and activate
-        out = normalize_activate(out, scope="norm_2")
-        
-        # 1 X k convolution
-        out = conv1d(out, filters=in_dim/2, size=size, rate=rate, causal=causal, scope="conv1d_2")
-        
-        # normalize and activate
-        out = normalize_activate(out, scope="norm_3")
-        
-        # 1 X 1 convolution -> Dimension recovery
-        out = conv1d(out, filters=in_dim, size=1, causal=causal, scope="conv1d_3")
-        
-        # Residual connection
-        out += tensor
-    
-    return out 
+        logits = d_pool.sg_conv1d(size=1, dim=len(char2idx), act="linear") # (16, 150, 179)
 
-class Graph():
-    def __init__(self, is_training=True):
-        self.graph = tf.Graph()
-        with self.graph.as_default():
-            if is_training:
-                self.x, self.y, self.num_batch = get_batch_data() # (N, T)
-                self.decoder_inputs = tf.concat((tf.ones_like(self.y[:, :1]) * 2, self.y[:, :-1]), -1) # 2: BOS
-            else: # inference
-                self.x = tf.placeholder(tf.int32, shape=(None, hp.maxlen))
-                self.decoder_inputs = tf.placeholder(tf.int32, shape=(None, hp.maxlen))
-            
-            # Load vocabulary    
-            char2idx, idx2char = load_vocab()
-             
-            # Embedding
-            self.enc = embed(self.x, len(char2idx), hp.hidden_units, scope="embed_enc")
-            self.dec = embed(self.decoder_inputs, len(char2idx), hp.hidden_units, scope="embed_dec")
-             
-            # Encoding
-            for i in range(hp.num_blocks):
-                for rate in (1,2,4,8,16):
-                    self.enc = block(self.enc, 
-                                    size=5, 
-                                    rate=rate,
-                                    causal=False,
-                                    initial=True if (i==0 and rate==1) else False,
-                                    scope="enc_block_{}_{}".format(i, rate)) # (N, T, C)
-                     
-            # Decoding
-            self.dec = tf.concat((self.enc, self.dec), -1)
-            for i in range(hp.num_blocks):
-                for rate in (1,2,4,8,16):
-                        self.dec = block(self.dec, 
-                                        size=3, 
-                                        rate=rate, 
-                                        causal=True,
-                                        scope="dec_block_{}_{}".format(i, rate))
-             
-            # final 1 X 1 convolutional layer for softmax
-            self.logits = conv1d(self.dec, filters=len(char2idx), use_bias=True) # (N, T, V)
-            
-            if is_training:
-                # Loss
-                ce = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=self.y) # (N, T)
-                istarget = tf.to_float(tf.not_equal(self.y, 0)) # zeros: 0, non-zeros: 1 (N, T)
-                self.loss = tf.reduce_sum(ce * istarget) / (tf.reduce_sum(istarget) + 1e-8)
-                 
-                # Training
-                self.global_step = tf.Variable(0, name='global_step', trainable=False)
-                self.train_op = tf.train.AdamOptimizer(learning_rate=hp.lr)\
-                                        .minimize(self.loss, global_step=self.global_step)
-                 
-                # Summmary 
-                tf.summary.scalar('loss', self.loss)
-                self.merged = tf.summary.merge_all()
-                
-            # Predictions
-            self.preds = tf.arg_max(self.logits, dimension=-1)
+        if mode=='train':
+            # cross entropy loss with logits ( for training set )
+            self.loss = logits.sg_ce(target=self.y, mask=True)
+            istarget = tf.not_equal(self.y, 0).sg_float()
+            self.reduced_loss = (self.loss.sg_sum()) / (istarget.sg_sum() + 1e-8)
+            tf.sg_summary_loss(self.reduced_loss, "reduced_loss")
+        else: # inference
+            self.preds = logits.sg_argmax() 
 
-def main():   
-    g = Graph("train"); print("Graph loaded")
-    char2idx, idx2char = load_vocab()
+def main():
+    g = Graph(); print("Graph Loaded")
+    tf.sg_train(optim="Adam", lr=0.0001, lr_reset=True, loss=g.reduced_loss, ep_size=g.num_batch,
+                save_dir='asset/train', max_ep=10, early_stop=False)
     
-    sv = tf.train.Supervisor(graph=g.graph, 
-                             logdir=hp.logdir,
-                             save_model_secs=0)
-    
-    with sv.managed_session() as sess:
-        # Training
-        for epoch in range(1, hp.num_epochs+1): 
-            if sv.should_stop(): break
-            for step in tqdm(range(g.num_batch), total=g.num_batch, ncols=70, leave=False, unit='b'):
-                sess.run(g.train_op)
-               
-            sv.saver.save(sess, hp.logdir + '/model_epoch_%02d_gs_%d' % (epoch, gs))
-        
-if __name__ == '__main__':
-    main()
-    print("Done")
-
+if __name__ == "__main__":
+    main(); print("Done")
