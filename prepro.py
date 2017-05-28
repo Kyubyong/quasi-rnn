@@ -53,4 +53,4 @@ def load_test_data():
     en_sents = [remove_tags(line) for line in codecs.open(Hp.en_test, 'r', 'utf-8').read().split("\n") if line and line[:4] == "<seg"]
 
     X, _, Sources, Targets = create_data(de_sents, en_sents)
-return X, Sources, Targets # (1064, 150)
+    return X, Sources, Targets # (1064, 150)
