@@ -24,7 +24,7 @@ Overall, we tried to follow the instructions in the Paper. Some major difference
 
 Or if you'd like to use the pretrained model,
 
-* Download the [pre-trained model files](https://dl.dropboxusercontent.com/u/42868014/qrnn/qrnn.tar.gz), then extract them to `asset/train/` folder.
+* Download the [pre-trained model files](https://www.dropbox.com/s/lhjlz0492xna977/qrnn.tar.gz?dl=0), then extract them to `asset/train/` folder.
 * Run eval.py.
 
 ## Evaluation & Results
