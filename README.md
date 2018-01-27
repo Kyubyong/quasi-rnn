@@ -32,7 +32,9 @@ Or if you'd like to use the pretrained model,
 Our best model obtained Bleu Score of 15.145749415. The details are available in `model.ckpt-50604`. 
 
 
-	
+## Papers that referenced this repo
+
+  * [Machine Translation of Low-Resource Spoken Dialects: Strategies for Normalizing Swiss German](https://arxiv.org/pdf/1710.11035.pdf)
 
 
 
